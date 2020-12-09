@@ -32,6 +32,7 @@ import (
 	"github.com/gravitational/teleport/lib/srv/db/postgres"
 	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
+	"github.com/gravitational/teleport/lib/utils/testlog"
 
 	"github.com/jackc/pgconn"
 	"github.com/pborman/uuid"
@@ -137,6 +138,7 @@ func setupDatabaseTest(t *testing.T) *databasePack {
 	utils.InitLoggerForTests(testing.Verbose())
 	lib.SetInsecureDevMode(true)
 	SetTestTimeouts(100 * time.Millisecond)
+	log := testlog.FailureOnly(t)
 
 	// Create ports allocator.
 	startPort := utils.PortStartingNumber + (3 * AllocatePortsNum) + 1
@@ -160,6 +162,7 @@ func setupDatabaseTest(t *testing.T) *databasePack {
 		Ports:       ports.PopIntSlice(5),
 		Priv:        privateKey,
 		Pub:         publicKey,
+		log:         log,
 	})
 
 	// Create leaf cluster.
@@ -170,6 +173,7 @@ func setupDatabaseTest(t *testing.T) *databasePack {
 		Ports:       ports.PopIntSlice(5),
 		Priv:        privateKey,
 		Pub:         publicKey,
+		log:         log,
 	})
 
 	// Make root cluster config.
