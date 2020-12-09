@@ -48,6 +48,7 @@ import (
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/session"
 	"github.com/gravitational/teleport/lib/sshutils"
+	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/teleport/tool/tsh/common"
 
@@ -1074,13 +1075,15 @@ func showApps(servers []services.Server, verbose bool) {
 	}
 }
 
-func showDatabases(servers []services.DatabaseServer, active []string, verbose bool) {
+func showDatabases(servers []services.DatabaseServer, active []tlsca.RouteToDatabase, verbose bool) {
 	if verbose {
 		t := asciitable.MakeTable([]string{"Name", "Description", "URI", "Labels"})
 		for _, server := range servers {
 			name := server.GetName()
-			if utils.SliceContainsStr(active, name) {
-				name = fmt.Sprintf("> %v", name)
+			for _, a := range active {
+				if a.ServiceName == name {
+					name = formatActiveDB(a)
+				}
 			}
 			t.AddRow([]string{
 				name,
@@ -1094,8 +1097,10 @@ func showDatabases(servers []services.DatabaseServer, active []string, verbose b
 		t := asciitable.MakeTable([]string{"Name", "Description", "Labels"})
 		for _, server := range servers {
 			name := server.GetName()
-			if utils.SliceContainsStr(active, name) {
-				name = fmt.Sprintf("> %v", name)
+			for _, a := range active {
+				if a.ServiceName == name {
+					name = formatActiveDB(a)
+				}
 			}
 			t.AddRow([]string{
 				name,
@@ -1105,6 +1110,18 @@ func showDatabases(servers []services.DatabaseServer, active []string, verbose b
 		}
 		fmt.Println(t.AsBuffer().String())
 	}
+}
+
+func formatActiveDB(active tlsca.RouteToDatabase) string {
+	switch {
+	case active.Username != "" && active.Database != "":
+		return fmt.Sprintf("> %v (user: %v, db: %v)", active.ServiceName, active.Username, active.Database)
+	case active.Username != "":
+		return fmt.Sprintf("> %v (user: %v)", active.ServiceName, active.Username)
+	case active.Database != "":
+		return fmt.Sprintf("> %v (db: %v)", active.ServiceName, active.Database)
+	}
+	return fmt.Sprintf("> %v", active.ServiceName)
 }
 
 // chunkLabels breaks labels into sized chunks. Used to improve readability

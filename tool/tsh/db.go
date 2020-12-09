@@ -54,7 +54,7 @@ func onListDatabases(cf *CLIConf) {
 	if err != nil {
 		utils.FatalError(err)
 	}
-	showDatabases(servers, profile.DatabaseServices(), cf.Verbose)
+	showDatabases(servers, profile.Databases, cf.Verbose)
 }
 
 // onDatabaseLogin handles "tsh db login" command.
