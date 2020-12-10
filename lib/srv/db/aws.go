@@ -18,6 +18,7 @@ package db
 
 import (
 	"context"
+	"crypto/x509"
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
@@ -46,6 +47,12 @@ func (s *Server) initRDSRootCert(ctx context.Context, server services.DatabaseSe
 	if err != nil {
 		return trace.Wrap(err)
 	}
+	// Make sure the cert we got is valid just in case.
+	_, err = x509.ParseCertificates(bytes)
+	if err != nil {
+		return trace.Wrap(err, "RDS root certificate for %v doesn't appear to be a valid x509 certificate: %s",
+			server, bytes)
+	}
 	s.rdsCACerts[server.GetRegion()] = bytes
 	return nil
 }
@@ -53,7 +60,7 @@ func (s *Server) initRDSRootCert(ctx context.Context, server services.DatabaseSe
 func (s *Server) ensureRDSRootCert(downloadURL string) ([]byte, error) {
 	// The downloaded CA resides in the data dir under the same filename e.g.
 	//   /var/lib/teleport/rds-ca-2019-root-pem
-	filePath := filepath.Join(s.DataDir, filepath.Base(downloadURL))
+	filePath := filepath.Join(s.cfg.DataDir, filepath.Base(downloadURL))
 	// Check if we already have it.
 	_, err := utils.StatFile(filePath)
 	if err != nil && !trace.IsNotFound(err) {
@@ -61,7 +68,7 @@ func (s *Server) ensureRDSRootCert(downloadURL string) ([]byte, error) {
 	}
 	// It's already downloaded.
 	if err == nil {
-		s.Infof("Loaded RDS certificate %v.", filePath)
+		s.log.Infof("Loaded RDS certificate %v.", filePath)
 		return ioutil.ReadFile(filePath)
 	}
 	// Otherwise download it.
@@ -69,16 +76,16 @@ func (s *Server) ensureRDSRootCert(downloadURL string) ([]byte, error) {
 }
 
 func (s *Server) downloadRDSRootCert(downloadURL, filePath string) ([]byte, error) {
-	s.Infof("Downloading RDS certificate %v.", downloadURL)
+	s.log.Infof("Downloading RDS certificate %v.", downloadURL)
 	resp, err := http.Get(downloadURL)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, trace.BadParameter("status code %v when fetching from %q",
 			resp.StatusCode, downloadURL)
 	}
-	defer resp.Body.Close()
 	bytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -87,7 +94,7 @@ func (s *Server) downloadRDSRootCert(downloadURL, filePath string) ([]byte, erro
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	s.Infof("Saved RDS certificate %v.", filePath)
+	s.log.Infof("Saved RDS certificate %v.", filePath)
 	return bytes, nil
 }
 

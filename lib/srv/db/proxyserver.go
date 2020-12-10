@@ -42,8 +42,8 @@ import (
 // connections coming from the database clients (via a multiplexer) and
 // dispatching them to appropriate database services over reverse tunnel.
 type ProxyServer struct {
-	// ProxyServerConfig is the proxy server configuration.
-	ProxyServerConfig
+	// cfg is the proxy server configuration.
+	cfg ProxyServerConfig
 	// middleware extracts identity information from client certificates.
 	middleware *auth.Middleware
 	// closeCtx is closed when the process shuts down.
@@ -92,16 +92,16 @@ func NewProxyServer(ctx context.Context, config ProxyServerConfig) (*ProxyServer
 		return nil, trace.Wrap(err)
 	}
 	server := &ProxyServer{
-		ProxyServerConfig: config,
+		cfg: config,
 		middleware: &auth.Middleware{
 			AccessPoint: config.AccessPoint,
 		},
 		closeCtx: ctx,
 		log:      logrus.WithField(trace.Component, "db:proxy"),
 	}
-	server.TLSConfig.ClientAuth = tls.RequireAndVerifyClientCert
-	server.TLSConfig.GetConfigForClient = getConfigForClient(
-		server.TLSConfig, server.AccessPoint, server.log)
+	server.cfg.TLSConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	server.cfg.TLSConfig.GetConfigForClient = getConfigForClient(
+		server.cfg.TLSConfig, server.cfg.AccessPoint, server.log)
 	return server, nil
 }
 
@@ -114,12 +114,7 @@ func (s *ProxyServer) Serve(listener net.Listener) error {
 		// The connection is expected to come through via multiplexer.
 		clientConn, err := listener.Accept()
 		if err != nil {
-			// Indicates closed listener.
-			if trace.IsConnectionProblem(err) {
-				return trace.Wrap(err)
-			}
-			s.log.WithError(err).Errorf("Failed to accept client connection.")
-			continue
+			return trace.Wrap(err)
 		}
 		// The multiplexed connection contains information about detected
 		// protocol so dispatch to the appropriate proxy.
@@ -134,8 +129,7 @@ func (s *ProxyServer) Serve(listener net.Listener) error {
 			defer clientConn.Close()
 			err := proxy.HandleConnection(s.closeCtx, clientConn)
 			if err != nil {
-				s.log.Errorf("Failed to handle client connection: %v.",
-					trace.DebugReport(err))
+				s.log.WithError(err).Error("Failed to handle client connection.")
 			}
 		}()
 	}
@@ -158,7 +152,7 @@ func (s *ProxyServer) dispatch(clientConn net.Conn) (DatabaseProxy, error) {
 	case multiplexer.ProtoPostgres:
 		s.log.Debugf("Accepted Postgres connection from %v.", muxConn.RemoteAddr())
 		return &postgres.Proxy{
-			TLSConfig:     s.TLSConfig,
+			TLSConfig:     s.cfg.TLSConfig,
 			Middleware:    s.middleware,
 			ConnectToSite: s.connectToSite,
 			Log:           s.log,
@@ -210,7 +204,7 @@ type proxyContext struct {
 }
 
 func (s *ProxyServer) authorize(ctx context.Context) (*proxyContext, error) {
-	authContext, err := s.Authorizer.Authorize(ctx)
+	authContext, err := s.cfg.Authorizer.Authorize(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -231,7 +225,7 @@ func (s *ProxyServer) authorize(ctx context.Context) (*proxyContext, error) {
 // pickDatabaseServer finds a database server instance to proxy requests
 // to based on the routing information from the provided identity.
 func (s *ProxyServer) pickDatabaseServer(ctx context.Context, identity tlsca.Identity) (reversetunnel.RemoteSite, services.DatabaseServer, error) {
-	site, err := s.Tunnel.GetSite(identity.RouteToCluster)
+	site, err := s.cfg.Tunnel.GetSite(identity.RouteToCluster)
 	if err != nil {
 		return nil, nil, trace.Wrap(err)
 	}
@@ -273,7 +267,7 @@ func (s *ProxyServer) getConfigForServer(ctx context.Context, identity tlsca.Ide
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	response, err := s.AuthClient.SignDatabaseCSR(ctx, &proto.DatabaseCSRRequest{
+	response, err := s.cfg.AuthClient.SignDatabaseCSR(ctx, &proto.DatabaseCSRRequest{
 		CSR:         csr,
 		ClusterName: identity.RouteToCluster,
 	})

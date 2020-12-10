@@ -112,8 +112,8 @@ func (c *Config) CheckAndSetDefaults() error {
 // Server is an application server. It authenticates requests from the web
 // proxy and forwards them to internal applications.
 type Server struct {
-	// Config is the database server configuration.
-	Config
+	// cfg is the database server configuration.
+	cfg Config
 	// closeContext is used to indicate the server is closing.
 	closeContext context.Context
 	// closeFunc is the cancel function of the close context.
@@ -128,8 +128,8 @@ type Server struct {
 	rdsCACerts map[string][]byte
 	// mu protects access to server infos.
 	mu sync.RWMutex
-	// Entry is used for logging.
-	*logrus.Entry
+	// log is used for logging.
+	log *logrus.Entry
 }
 
 // New returns a new application server.
@@ -139,11 +139,11 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		return nil, trace.Wrap(err)
 	}
 
-	localCtx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
 	server := &Server{
-		Config:        config,
-		Entry:         logrus.WithField(trace.Component, teleport.ComponentDatabase),
-		closeContext:  localCtx,
+		cfg:           config,
+		log:           logrus.WithField(trace.Component, teleport.ComponentDatabase),
+		closeContext:  ctx,
 		closeFunc:     cancel,
 		dynamicLabels: make(map[string]*labels.Dynamic),
 		heartbeats:    make(map[string]*srv.Heartbeat),
@@ -155,14 +155,14 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	}
 
 	// Update TLS config to require client certificate.
-	server.TLSConfig.ClientAuth = tls.RequireAndVerifyClientCert
-	server.TLSConfig.GetConfigForClient = getConfigForClient(
-		server.TLSConfig, server.AccessPoint, server.Entry)
+	server.cfg.TLSConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	server.cfg.TLSConfig.GetConfigForClient = getConfigForClient(
+		server.cfg.TLSConfig, server.cfg.AccessPoint, server.log)
 
 	// Perform various initialization actions on each proxied database, like
 	// starting up dynamic labels and loading root certs for RDS dbs.
-	for _, db := range server.Servers {
-		if err := server.initDatabaseServer(localCtx, db); err != nil {
+	for _, db := range server.cfg.Servers {
+		if err := server.initDatabaseServer(ctx, db); err != nil {
 			return nil, trace.Wrap(err)
 		}
 	}
@@ -189,7 +189,7 @@ func (s *Server) initDynamicLabels(ctx context.Context, server services.Database
 	}
 	dynamic, err := labels.NewDynamic(ctx, &labels.DynamicConfig{
 		Labels: server.GetDynamicLabels(),
-		Log:    s.Entry,
+		Log:    s.log,
 	})
 	if err != nil {
 		return trace.Wrap(err)
@@ -204,13 +204,13 @@ func (s *Server) initHeartbeat(ctx context.Context, server services.DatabaseServ
 		Context:         s.closeContext,
 		Component:       teleport.ComponentDatabase,
 		Mode:            srv.HeartbeatModeDB,
-		Announcer:       s.AccessPoint,
+		Announcer:       s.cfg.AccessPoint,
 		GetServerInfo:   s.getServerInfoFunc(server),
 		KeepAlivePeriod: defaults.ServerKeepAliveTTL,
 		AnnouncePeriod:  defaults.ServerAnnounceTTL/2 + utils.RandomDuration(defaults.ServerAnnounceTTL/10),
 		CheckPeriod:     defaults.HeartbeatCheckPeriod,
 		ServerTTL:       defaults.ServerAnnounceTTL,
-		OnHeartbeat:     s.OnHeartbeat,
+		OnHeartbeat:     s.cfg.OnHeartbeat,
 	})
 	if err != nil {
 		return trace.Wrap(err)
@@ -229,14 +229,16 @@ func (s *Server) getServerInfoFunc(server services.DatabaseServer) func() (servi
 			server.SetDynamicLabels(labels.Get())
 		}
 		// Update CA rotation state.
-		rotation, err := s.GetRotation(teleport.RoleDatabase)
+		rotation, err := s.cfg.GetRotation(teleport.RoleDatabase)
 		if err != nil && !trace.IsNotFound(err) {
-			s.WithError(err).Warn("Failed to get rotation state.")
+			s.log.WithError(err).Warn("Failed to get rotation state.")
 		} else {
-			server.SetRotation(*rotation)
+			if rotation != nil {
+				server.SetRotation(*rotation)
+			}
 		}
 		// Update TTL.
-		server.SetTTL(s.Clock, defaults.ServerAnnounceTTL)
+		server.SetTTL(s.cfg.Clock, defaults.ServerAnnounceTTL)
 		// Make sure to return a new object, because it gets cached by
 		// heartbeat and will always compare as equal otherwise.
 		return server.Copy(), nil
@@ -247,7 +249,7 @@ func (s *Server) getServerInfoFunc(server services.DatabaseServer) func() (servi
 func (s *Server) getServers() []services.DatabaseServer {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.Servers
+	return s.cfg.Servers
 }
 
 // Start starts heartbeating the presence of service.Databases that this
@@ -288,11 +290,11 @@ func (s *Server) Wait() error {
 // upgrades it to TLS, extracts identity information from it, performs
 // authorization and dispatches to the appropriate database engine.
 func (s *Server) HandleConnection(conn net.Conn) {
-	log := s.WithField("addr", conn.RemoteAddr())
+	log := s.log.WithField("addr", conn.RemoteAddr())
 	log.Debug("Accepted connection.")
 	// Upgrade the connection to TLS since the other side of the reverse
 	// tunnel connection (proxy) will initiate a handshake.
-	tlsConn := tls.Server(conn, s.TLSConfig)
+	tlsConn := tls.Server(conn, s.cfg.TLSConfig)
 	// Make sure to close the upgraded connection, not "conn", otherwise
 	// the other side may not detect that connection has closed.
 	defer tlsConn.Close()
@@ -306,7 +308,7 @@ func (s *Server) HandleConnection(conn net.Conn) {
 	}
 	// Now that the handshake has completed and the client has sent us a
 	// certificate, extract identity information from it.
-	ctx, err := s.middleware.WrapContext(context.Background(), tlsConn)
+	ctx, err := s.middleware.WrapContext(s.closeContext, tlsConn)
 	if err != nil {
 		log.WithError(err).Error("Failed to extract identity from connection.")
 		return
@@ -367,13 +369,13 @@ func (s *Server) dispatch(sessionCtx *session.Context, streamWriter events.Strea
 	switch sessionCtx.Server.GetProtocol() {
 	case defaults.ProtocolPostgres:
 		return &postgres.Engine{
-			AuthClient:     s.AuthClient,
-			Credentials:    s.Credentials,
+			AuthClient:     s.cfg.AuthClient,
+			Credentials:    s.cfg.Credentials,
 			RDSCACerts:     s.rdsCACerts,
 			OnSessionStart: s.emitSessionStartEventFn(streamWriter),
 			OnSessionEnd:   s.emitSessionEndEventFn(streamWriter),
 			OnQuery:        s.emitQueryEventFn(streamWriter),
-			Clock:          s.Clock,
+			Clock:          s.cfg.Clock,
 			Log:            sessionCtx.Log,
 		}, nil
 	}
@@ -390,20 +392,20 @@ func (s *Server) authorize(ctx context.Context) (*session.Context, error) {
 		return nil, trace.BadParameter("invalid identity: %T", userType)
 	}
 	// Extract authorizing context and identity of the user from the request.
-	authContext, err := s.Authorizer.Authorize(ctx)
+	authContext, err := s.cfg.Authorizer.Authorize(ctx)
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
 	identity := authContext.Identity.GetIdentity()
-	s.Debugf("Client identity: %#v.", identity)
+	s.log.Debugf("Client identity: %#v.", identity)
 	// Fetch the requested database server.
 	var server services.DatabaseServer
-	for _, s := range s.Servers {
+	for _, s := range s.cfg.Servers {
 		if s.GetName() == identity.RouteToDatabase.ServiceName {
 			server = s
 		}
 	}
-	s.Debugf("Will connect to database %q at %v.", server.GetName(),
+	s.log.Debugf("Will connect to database %q at %v.", server.GetName(),
 		server.GetURI())
 	id := uuid.New()
 	return &session.Context{
@@ -412,7 +414,7 @@ func (s *Server) authorize(ctx context.Context) (*session.Context, error) {
 		Identity:          identity,
 		Checker:           authContext.Checker,
 		StartupParameters: make(map[string]string),
-		Log: s.WithFields(logrus.Fields{
+		Log: s.log.WithFields(logrus.Fields{
 			"id": id,
 			"db": server.GetName(),
 		}),

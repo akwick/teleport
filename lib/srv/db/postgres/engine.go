@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"net"
 
@@ -73,16 +74,11 @@ type Engine struct {
 // error message response so the client such as psql can display it
 // appropriately.
 func toErrorResponse(err error) *pgproto3.ErrorResponse {
-	// Wrapped error is not public in the pgconn package so use an
-	// ephemeral interface to get access to the unwrap method.
-	type pgError interface{ Unwrap() error }
-	wrappedErr, ok := trace.Unwrap(err).(pgError)
-	if !ok {
-		return &pgproto3.ErrorResponse{Message: err.Error()}
-	}
-	pgErr, ok := wrappedErr.Unwrap().(*pgconn.PgError)
-	if !ok {
-		return &pgproto3.ErrorResponse{Message: err.Error()}
+	var pgErr *pgconn.PgError
+	if !errors.As(trace.Unwrap(err), &pgErr) {
+		return &pgproto3.ErrorResponse{
+			Message: err.Error(),
+		}
 	}
 	return &pgproto3.ErrorResponse{
 		Severity: pgErr.Severity,
@@ -140,7 +136,7 @@ func (e *Engine) HandleConnection(ctx context.Context, sessionCtx *session.Conte
 	defer func() {
 		err := e.OnSessionEnd(*sessionCtx)
 		if err != nil {
-			e.Log.Error("Failed to emit audit event.")
+			e.Log.WithError(err).Error("Failed to emit audit event.")
 		}
 	}()
 	// Reconstruct pgconn.PgConn from hijacked connection for easier access
@@ -152,7 +148,7 @@ func (e *Engine) HandleConnection(ctx context.Context, sessionCtx *session.Conte
 	defer func() {
 		err = serverConn.Close(ctx)
 		if err != nil {
-			e.Log.Error("Failed to close connection.")
+			e.Log.WithError(err).Error("Failed to close connection.")
 		}
 	}()
 	// Now launch the message exchange relaying all intercepted messages b/w
@@ -322,11 +318,10 @@ func (e *Engine) receiveFromServer(server *pgproto3.Frontend, client *pgproto3.B
 			return
 		}
 		log.Debugf("Received server message: %#v.", message)
-		switch message.(type) {
-		case *pgproto3.ErrorResponse:
-		case *pgproto3.DataRow:
-		case *pgproto3.CommandComplete:
-		}
+		// This is where we would plug in custom logic for particular
+		// messages received from the Postgres server (i.e. emitting
+		// an audit event), but for now just pass them along back to
+		// the client.
 		err = client.Send(message)
 		if err != nil {
 			log.WithError(err).Error("Failed to send message to client.")
@@ -356,7 +351,7 @@ func (e *Engine) getConnectConfig(ctx context.Context, sessionCtx *session.Conte
 	// RDS/Aurora use IAM authentication so request an auth token and
 	// use it as a password.
 	if sessionCtx.Server.IsAWS() {
-		config.Password, err = e.getAuthToken(sessionCtx)
+		config.Password, err = e.getAWSAuthToken(sessionCtx)
 		if err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -370,9 +365,9 @@ func (e *Engine) getConnectConfig(ctx context.Context, sessionCtx *session.Conte
 	return config, nil
 }
 
-// getAuthToken returns authorization token that will be used as a password
+// getAWSAuthToken returns authorization token that will be used as a password
 // when connecting to RDS/Aurora databases.
-func (e *Engine) getAuthToken(sessionCtx *session.Context) (string, error) {
+func (e *Engine) getAWSAuthToken(sessionCtx *session.Context) (string, error) {
 	e.Log.Debugf("Generating auth token for %s.", sessionCtx)
 	return rdsutils.BuildAuthToken(
 		sessionCtx.Server.GetURI(),
@@ -445,6 +440,8 @@ func (e *Engine) getClientCert(ctx context.Context, sessionCtx *session.Context)
 	if err != nil {
 		return nil, nil, trace.Wrap(err)
 	}
+	// TODO(r0mant): Cache database certificates to avoid expensive generate
+	// operation on each connection.
 	e.Log.Debugf("Generating client certificate for %s.", sessionCtx)
 	resp, err := e.AuthClient.GenerateDatabaseCert(ctx, &proto.DatabaseCertRequest{
 		CSR: csr,

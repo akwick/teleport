@@ -36,7 +36,7 @@ import (
 // newStreamWriter creates a streamer that will be used to stream the
 // requests that occur within this session to the audit log.
 func (s *Server) newStreamWriter(sessionCtx *session.Context) (events.StreamWriter, error) {
-	clusterConfig, err := s.AccessPoint.GetClusterConfig()
+	clusterConfig, err := s.cfg.AccessPoint.GetClusterConfig()
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -51,7 +51,7 @@ func (s *Server) newStreamWriter(sessionCtx *session.Context) (events.StreamWrit
 	return events.NewAuditWriter(events.AuditWriterConfig{
 		Context:      s.closeContext,
 		Streamer:     streamer,
-		Clock:        s.Clock,
+		Clock:        s.cfg.Clock,
 		SessionID:    libsession.ID(sessionCtx.ID),
 		Namespace:    defaults.Namespace,
 		ServerID:     sessionCtx.Server.GetHostID(),
@@ -67,12 +67,12 @@ func (s *Server) newStreamWriter(sessionCtx *session.Context) (events.StreamWrit
 func (s *Server) newStreamer(ctx context.Context, sessionID string, clusterConfig services.ClusterConfig) (events.Streamer, error) {
 	mode := clusterConfig.GetSessionRecording()
 	if services.IsRecordSync(mode) {
-		s.Debugf("Using sync streamer for session %v.", sessionID)
-		return s.AuthClient, nil
+		s.log.Debugf("Using sync streamer for session %v.", sessionID)
+		return s.cfg.AuthClient, nil
 	}
-	s.Debugf("Using async streamer for session %v.", sessionID)
+	s.log.Debugf("Using async streamer for session %v.", sessionID)
 	uploadDir := filepath.Join(
-		s.DataDir, teleport.LogsDir, teleport.ComponentUpload,
+		s.cfg.DataDir, teleport.LogsDir, teleport.ComponentUpload,
 		events.StreamingLogsDir, defaults.Namespace)
 	// Make sure the upload dir exists, otherwise file streamer will fail.
 	_, err := utils.StatDir(uploadDir)
@@ -80,7 +80,7 @@ func (s *Server) newStreamer(ctx context.Context, sessionID string, clusterConfi
 		return nil, trace.Wrap(err)
 	}
 	if trace.IsNotFound(err) {
-		s.Debugf("Creating upload dir %v.", uploadDir)
+		s.log.Debugf("Creating upload dir %v.", uploadDir)
 		if err := os.MkdirAll(uploadDir, 0755); err != nil {
 			return nil, trace.Wrap(err)
 		}
@@ -89,7 +89,7 @@ func (s *Server) newStreamer(ctx context.Context, sessionID string, clusterConfi
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	return events.NewTeeStreamer(fileStreamer, s.StreamEmitter), nil
+	return events.NewTeeStreamer(fileStreamer, s.cfg.StreamEmitter), nil
 }
 
 // emitSessionStartEventFn returns function that uses the provided emitter to
