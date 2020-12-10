@@ -94,9 +94,9 @@ func (s *Server) newStreamer(ctx context.Context, sessionID string, clusterConfi
 
 // emitSessionStartEventFn returns function that uses the provided emitter to
 // emit an audit event when database session starts.
-func (s *Server) emitSessionStartEventFn(streamWriter events.StreamWriter) func(session.Context) error {
-	return func(session session.Context) error {
-		return streamWriter.EmitAuditEvent(s.closeContext, &events.DatabaseSessionStart{
+func (s *Server) emitSessionStartEventFn(streamWriter events.StreamWriter) func(session.Context, error) error {
+	return func(session session.Context, err error) error {
+		event := &events.DatabaseSessionStart{
 			Metadata: events.Metadata{
 				Type: events.DatabaseSessionStartEvent,
 				Code: events.DatabaseSessionStartCode,
@@ -111,14 +111,26 @@ func (s *Server) emitSessionStartEventFn(streamWriter events.StreamWriter) func(
 			SessionMetadata: events.SessionMetadata{
 				SessionID: session.ID,
 			},
-			DatabaseMetadata: &events.DatabaseMetadata{
+			Status: events.Status{
+				Success: true,
+			},
+			DatabaseMetadata: events.DatabaseMetadata{
 				DatabaseService:  session.Server.GetName(),
 				DatabaseProtocol: session.Server.GetProtocol(),
 				DatabaseURI:      session.Server.GetURI(),
 				DatabaseName:     session.DatabaseName,
 				DatabaseUser:     session.DatabaseUser,
 			},
-		})
+		}
+		if err != nil {
+			event.Metadata.Code = events.DatabaseSessionStartFailureCode
+			event.Status = events.Status{
+				Success:     false,
+				Error:       trace.Unwrap(err).Error(),
+				UserMessage: err.Error(),
+			}
+		}
+		return streamWriter.EmitAuditEvent(s.closeContext, event)
 	}
 }
 
@@ -137,7 +149,7 @@ func (s *Server) emitSessionEndEventFn(streamWriter events.StreamWriter) func(se
 			SessionMetadata: events.SessionMetadata{
 				SessionID: session.ID,
 			},
-			DatabaseMetadata: &events.DatabaseMetadata{
+			DatabaseMetadata: events.DatabaseMetadata{
 				DatabaseService:  session.Server.GetName(),
 				DatabaseProtocol: session.Server.GetProtocol(),
 				DatabaseURI:      session.Server.GetURI(),
@@ -152,10 +164,10 @@ func (s *Server) emitSessionEndEventFn(streamWriter events.StreamWriter) func(se
 // an audit event when a database query is executed.
 func (s *Server) emitQueryEventFn(streamWriter events.StreamWriter) func(session.Context, string) error {
 	return func(session session.Context, query string) error {
-		return streamWriter.EmitAuditEvent(s.closeContext, &events.DatabaseQuery{
+		return streamWriter.EmitAuditEvent(s.closeContext, &events.DatabaseSessionQuery{
 			Metadata: events.Metadata{
-				Type: events.DatabaseQueryEvent,
-				Code: events.DatabaseQueryCode,
+				Type: events.DatabaseSessionQueryEvent,
+				Code: events.DatabaseSessionQueryCode,
 			},
 			UserMetadata: events.UserMetadata{
 				User: session.Identity.Username,
@@ -163,7 +175,7 @@ func (s *Server) emitQueryEventFn(streamWriter events.StreamWriter) func(session
 			SessionMetadata: events.SessionMetadata{
 				SessionID: session.ID,
 			},
-			DatabaseMetadata: &events.DatabaseMetadata{
+			DatabaseMetadata: events.DatabaseMetadata{
 				DatabaseService:  session.Server.GetName(),
 				DatabaseProtocol: session.Server.GetProtocol(),
 				DatabaseURI:      session.Server.GetURI(),

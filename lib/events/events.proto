@@ -1131,12 +1131,16 @@ message DatabaseSessionStart {
     // Connection holds information about the connection.
     ConnectionMetadata Connection = 5
         [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
+    // Status indicates whether the connection was successful or denied.
+    Status Status = 6
+        [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
     // Database contains database related metadata.
-    DatabaseMetadata Database = 6 [ (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
+    DatabaseMetadata Database = 7
+        [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
 }
 
-// DatabaseQuery is emitted when a user executes a database query.
-message DatabaseQuery {
+// DatabaseSessionQuery is emitted when a user executes a database query.
+message DatabaseSessionQuery {
     // Metadata is a common event metadata.
     Metadata Metadata = 1
         [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
@@ -1147,7 +1151,8 @@ message DatabaseQuery {
     SessionMetadata Session = 3
         [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
     // Database contains database related metadata.
-    DatabaseMetadata Database = 4 [ (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
+    DatabaseMetadata Database = 4
+        [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
     // DatabaseQuery is the executed query string.
     string DatabaseQuery = 5 [ (gogoproto.jsontag) = "db_query" ];
 }
@@ -1164,7 +1169,8 @@ message DatabaseSessionEnd {
     SessionMetadata Session = 3
         [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
     // Database contains database related metadata.
-    DatabaseMetadata Database = 4 [ (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
+    DatabaseMetadata Database = 4
+        [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
 }
 
 // OneOf is a union of one of audit events submitted to the auth service
@@ -1212,7 +1218,7 @@ message OneOf {
         events.AppSessionRequest AppSessionRequest = 39;
         events.DatabaseSessionStart DatabaseSessionStart = 40;
         events.DatabaseSessionEnd DatabaseSessionEnd = 41;
-        events.DatabaseQuery DatabaseQuery = 42;
+        events.DatabaseSessionQuery DatabaseSessionQuery = 42;
     }
 }
 

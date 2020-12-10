@@ -58,7 +58,7 @@ type Engine struct {
 	// StreamWriter is the async audit logger.
 	StreamWriter events.StreamWriter
 	// OnSessionStart is called upon successful connection to the database.
-	OnSessionStart func(session.Context) error
+	OnSessionStart func(session.Context, error) error
 	// OnSessionEnd is called upon disconnection from the database.
 	OnSessionEnd func(session.Context) error
 	// OnQuery is called when an SQL query is executed on the connection.
@@ -133,7 +133,7 @@ func (e *Engine) HandleConnection(ctx context.Context, sessionCtx *session.Conte
 	}
 	// At this point Postgres client should be ready to start sending
 	// messages: this is where psql prompt appears on the other side.
-	err = e.OnSessionStart(*sessionCtx)
+	err = e.OnSessionStart(*sessionCtx, nil)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -201,8 +201,15 @@ func (e *Engine) handleStartup(client *pgproto3.Backend, sessionCtx *session.Con
 }
 
 func (e *Engine) checkAccess(sessionCtx *session.Context) error {
-	return sessionCtx.Checker.CheckAccessToDatabase(sessionCtx.Server,
+	err := sessionCtx.Checker.CheckAccessToDatabase(sessionCtx.Server,
 		sessionCtx.DatabaseName, sessionCtx.DatabaseUser)
+	if err != nil {
+		if err := e.OnSessionStart(*sessionCtx, err); err != nil {
+			e.Log.WithError(err).Error("Failed to emit audit event.")
+		}
+		return trace.Wrap(err)
+	}
+	return nil
 }
 
 // connect establishes the connection to the database instance and returns

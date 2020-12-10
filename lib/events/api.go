@@ -348,8 +348,8 @@ const (
 	DatabaseSessionStartEvent = "db.session.start"
 	// DatabaseSessionEndEvent indicates the end of a database session.
 	DatabaseSessionEndEvent = "db.session.end"
-	// DatabaseQueryEvent indicates a database query execution.
-	DatabaseQueryEvent = "db.query"
+	// DatabaseSessionQueryEvent indicates a database query execution.
+	DatabaseSessionQueryEvent = "db.session.query"
 
 	// SessionRejectedReasonMaxConnections indicates that a session.rejected event
 	// corresponds to enforcement of the max_connections control.

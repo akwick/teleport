@@ -319,10 +319,12 @@ const (
 
 	// DatabaseSessioStartCode is the database session start event code.
 	DatabaseSessionStartCode = "TDB00I"
+	// DatabaseSessionStartFailureCode is the database session start failure event code.
+	DatabaseSessionStartFailureCode = "TDB00W"
 	// DatabaseSessionEndCode is the database session end event code.
 	DatabaseSessionEndCode = "TDB01I"
-	// DatabaseQueryCode is the database query event code.
-	DatabaseQueryCode = "TDB02I"
+	// DatabaseSessionQueryCode is the database query event code.
+	DatabaseSessionQueryCode = "TDB02I"
 
 	// SubsystemCode is the subsystem event code.
 	SubsystemCode = "T3001I"

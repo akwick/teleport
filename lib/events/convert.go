@@ -399,9 +399,9 @@ func ToOneOf(in AuditEvent) (*OneOf, error) {
 		out.Event = &OneOf_DatabaseSessionEnd{
 			DatabaseSessionEnd: e,
 		}
-	case *DatabaseQuery:
-		out.Event = &OneOf_DatabaseQuery{
-			DatabaseQuery: e,
+	case *DatabaseSessionQuery:
+		out.Event = &OneOf_DatabaseSessionQuery{
+			DatabaseSessionQuery: e,
 		}
 	default:
 		return nil, trace.BadParameter("event type %T is not supported", in)
@@ -493,7 +493,7 @@ func FromOneOf(in OneOf) (AuditEvent, error) {
 		return e, nil
 	} else if e := in.GetDatabaseSessionEnd(); e != nil {
 		return e, nil
-	} else if e := in.GetDatabaseQuery(); e != nil {
+	} else if e := in.GetDatabaseSessionQuery(); e != nil {
 		return e, nil
 	} else {
 		if in.Event == nil {
