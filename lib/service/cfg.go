@@ -17,7 +17,6 @@ limitations under the License.
 package service
 
 import (
-	"crypto/x509"
 	"fmt"
 	"io"
 	"net"
@@ -41,6 +40,7 @@ import (
 	"github.com/gravitational/teleport/lib/pam"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/sshca"
+	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
 
 	"github.com/ghodss/yaml"
@@ -567,7 +567,7 @@ func (d *Database) Check() error {
 			d.Name, d.URI, err)
 	}
 	if len(d.CACert) != 0 {
-		if _, err := x509.ParseCertificates(d.CACert); err != nil {
+		if _, err := tlsca.ParseCertificatePEM(d.CACert); err != nil {
 			return trace.BadParameter("provided database %q CA doesn't appear to be a valid x509 certificate: %v",
 				d.Name, err)
 		}

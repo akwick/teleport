@@ -18,13 +18,13 @@ package db
 
 import (
 	"context"
-	"crypto/x509"
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/lib/services"
+	"github.com/gravitational/teleport/lib/tlsca"
 	"github.com/gravitational/teleport/lib/utils"
 
 	"github.com/gravitational/trace"
@@ -48,7 +48,7 @@ func (s *Server) initRDSRootCert(ctx context.Context, server services.DatabaseSe
 		return trace.Wrap(err)
 	}
 	// Make sure the cert we got is valid just in case.
-	_, err = x509.ParseCertificates(bytes)
+	_, err = tlsca.ParseCertificatePEM(bytes)
 	if err != nil {
 		return trace.Wrap(err, "RDS root certificate for %v doesn't appear to be a valid x509 certificate: %s",
 			server, bytes)
