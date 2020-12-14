@@ -19,6 +19,7 @@ package common
 import (
 	"context"
 	"os"
+	"text/template"
 
 	"github.com/gravitational/teleport"
 	"github.com/gravitational/teleport/lib/auth"
@@ -30,11 +31,11 @@ import (
 	"github.com/gravitational/trace"
 )
 
-// DbCommand implements "tctl db" group of commands.
-type DbCommand struct {
+// DBCommand implements "tctl db" group of commands.
+type DBCommand struct {
 	config *service.Config
 
-	// format is the output format (text, json, or yaml).
+	// format is the output format (text, json or yaml).
 	format string
 
 	// dbList implements the "tctl db ls" subcommand.
@@ -42,7 +43,7 @@ type DbCommand struct {
 }
 
 // Initialize allows DBCommand to plug itself into the CLI parser.
-func (c *DbCommand) Initialize(app *kingpin.Application, config *service.Config) {
+func (c *DBCommand) Initialize(app *kingpin.Application, config *service.Config) {
 	c.config = config
 
 	db := app.Command("db", "Operate on databases registered with the cluster.")
@@ -50,8 +51,8 @@ func (c *DbCommand) Initialize(app *kingpin.Application, config *service.Config)
 	c.dbList.Flag("format", "Output format, 'text', 'json', or 'yaml'").Default("text").StringVar(&c.format)
 }
 
-// TryRun attempts to run subcommands like "apps ls".
-func (c *DbCommand) TryRun(cmd string, client auth.ClientI) (match bool, err error) {
+// TryRun attempts to run subcommands like "db ls".
+func (c *DBCommand) TryRun(cmd string, client auth.ClientI) (match bool, err error) {
 	switch cmd {
 	case c.dbList.FullCommand():
 		err = c.ListDatabases(client)
@@ -63,7 +64,7 @@ func (c *DbCommand) TryRun(cmd string, client auth.ClientI) (match bool, err err
 
 // ListDatabases prints the list of database proxies that have recently sent
 // heartbeats to the cluster.
-func (c *DbCommand) ListDatabases(client auth.ClientI) error {
+func (c *DBCommand) ListDatabases(client auth.ClientI) error {
 	servers, err := client.GetDatabaseServers(context.TODO(), defaults.Namespace, services.SkipValidation())
 	if err != nil {
 		return trace.Wrap(err)
@@ -85,26 +86,27 @@ func (c *DbCommand) ListDatabases(client auth.ClientI) error {
 	return nil
 }
 
-const dbMessage = `The invite token: %v.
-This token will expire in %d minutes.
+var dbMessageTemplate = template.Must(template.New("db").Parse(`The invite token: {{.token}}.
+This token will expire in {{.minutes}} minutes.
 
 Fill out and run this command on a node to start proxying the database:
 
 > teleport start \
-   --roles=%v \
-   --token=%v \
-   --ca-pin=%v \
-   --auth-server=%v \
-   --db-name=%v \
-   --db-protocol=%v \
-   --db-uri=%v 
+   --roles={{.roles}} \
+   --token={{.token}} \
+   --ca-pin={{.ca_pin}} \
+   --auth-server={{.auth_server}} \
+   --db-name={{.db_name}} \
+   --db-protocol={{.db_protocol}} \
+   --db-uri={{.db_uri}} 
 
 Please note:
 
-  - This invitation token will expire in %d minutes.
-  - %v must be reachable from the new database service.
-  - When proxying an onprem database, it must be configured with Teleport CA
+  - This invitation token will expire in {{.minutes}} minutes.
+  - Database address {{.db_uri}} must be reachable from the new database
+    service.
+  - When proxying an on-prem database, it must be configured with Teleport CA
     and key pair issued by "tctl auth sign --format=db" command.
   - When proxying an AWS RDS or Aurora database, the region must also be
     specified with --db-aws-region flag.
-`
+`))

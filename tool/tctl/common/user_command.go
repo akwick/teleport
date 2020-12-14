@@ -74,7 +74,7 @@ func (u *UserCommand) Initialize(app *kingpin.Application, config *service.Confi
 		Default("").StringVar(&u.kubeGroups)
 	u.userAdd.Flag("db-names", "Database names this user can log into.").
 		Default("").StringVar(&u.dbNames)
-	u.userAdd.Flag("db-users", "Database users this user can user.").
+	u.userAdd.Flag("db-users", "Database users this user can log in as.").
 		Default("").StringVar(&u.dbUsers)
 	u.userAdd.Flag("ttl", fmt.Sprintf("Set expiration time for token, default is %v, maximum is %v",
 		defaults.SignupTokenTTL, defaults.MaxSignupTokenTTL)).

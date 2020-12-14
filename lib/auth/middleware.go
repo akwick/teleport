@@ -531,13 +531,8 @@ func (a *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // WrapContext enriches the provided context with the identity information
 // extracted from the provided TLS connection.
-func (a *Middleware) WrapContext(ctx context.Context, conn net.Conn) (context.Context, error) {
-	tlsConn, ok := conn.(*tls.Conn)
-	if !ok {
-		log.Warnf("Expected tls connection, got %T.", conn)
-		return nil, trace.AccessDenied("missing authentication")
-	}
-	user, err := a.GetUser(tlsConn.ConnectionState())
+func (a *Middleware) WrapContext(ctx context.Context, conn *tls.Conn) (context.Context, error) {
+	user, err := a.GetUser(conn.ConnectionState())
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}

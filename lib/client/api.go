@@ -356,7 +356,7 @@ func (p *ProfileStatus) IsExpired(clock clockwork.Clock) bool {
 
 // CACertPath returns path to the CA certificate for this profile.
 //
-// It's kept in ~/.tsh/keys/<proxy>/certs.pem.
+// It's stored in ~/.tsh/keys/<proxy>/certs.pem by default.
 func (p *ProfileStatus) CACertPath() string {
 	return filepath.Join(p.Dir, sessionKeyDir, p.Name, fileNameTLSCerts)
 }

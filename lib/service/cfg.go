@@ -92,7 +92,7 @@ type Config struct {
 	// App service configuration. Manages applications running within the cluster.
 	Apps AppsConfig
 
-	// Databases proxy service configuration.
+	// Databases defines database proxy service configuration.
 	Databases DatabasesConfig
 
 	// Keygen points to a key generator implementation
@@ -517,7 +517,7 @@ type KubeConfig struct {
 type DatabasesConfig struct {
 	// Enabled enables the database proxy service.
 	Enabled bool
-	// Database is a list of databases proxied by this service.
+	// Databases is a list of databases proxied by this service.
 	Databases []Database
 }
 

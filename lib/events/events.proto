@@ -1165,7 +1165,7 @@ message DatabaseSessionEnd {
     // User is a common user event metadata.
     UserMetadata User = 2
         [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
-    // SessionMetadata is a common event session metadata.
+    // Session is a common event session metadata.
     SessionMetadata Session = 3
         [ (gogoproto.nullable) = false, (gogoproto.embed) = true, (gogoproto.jsontag) = "" ];
     // Database contains database related metadata.

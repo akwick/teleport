@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -62,7 +63,7 @@ type TokenCommand struct {
 	dbName string
 	// dbProtocol is the database protocol.
 	dbProtocol string
-	// dbURI is the address the databaes is reachable at.
+	// dbURI is the address the database is reachable at.
 	dbURI string
 
 	// ttl is how long the token will live for.
@@ -204,18 +205,17 @@ func (c *TokenCommand) Add(client auth.ClientI) error {
 		if len(proxies) == 0 {
 			return trace.NotFound("cluster has no proxies")
 		}
-		fmt.Printf(dbMessage,
-			token,
-			int(c.ttl.Minutes()),
-			strings.ToLower(roles.String()),
-			token,
-			caPin,
-			proxies[0].GetPublicAddr(),
-			c.dbName,
-			c.dbProtocol,
-			c.dbURI,
-			int(c.ttl.Minutes()),
-			c.dbURI)
+		return dbMessageTemplate.Execute(os.Stdout,
+			map[string]interface{}{
+				"token":       token,
+				"minutes":     c.ttl.Minutes(),
+				"roles":       strings.ToLower(roles.String()),
+				"ca_pin":      caPin,
+				"auth_server": proxies[0].GetPublicAddr(),
+				"db_name":     c.dbName,
+				"db_protocol": c.dbProtocol,
+				"db_uri":      c.dbURI,
+			})
 	case roles.Include(teleport.RoleTrustedCluster), roles.Include(teleport.LegacyClusterTokenType):
 		fmt.Printf(trustedClusterMessage,
 			token,

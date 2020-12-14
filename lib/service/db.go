@@ -27,7 +27,6 @@ import (
 	"github.com/gravitational/teleport/lib/utils"
 
 	"github.com/gravitational/trace"
-	"github.com/sirupsen/logrus"
 )
 
 func (process *TeleportProcess) initDatabases() {
@@ -39,7 +38,7 @@ func (process *TeleportProcess) initDatabases() {
 }
 
 func (process *TeleportProcess) initDatabaseService() (retErr error) {
-	log := logrus.WithField(trace.Component, teleport.Component(
+	log := process.log.WithField(trace.Component, teleport.Component(
 		teleport.ComponentDatabase, process.id))
 
 	eventsCh := make(chan Event)

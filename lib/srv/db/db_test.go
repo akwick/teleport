@@ -42,7 +42,7 @@ import (
 func TestDatabaseAccess(t *testing.T) {
 	ctx := context.Background()
 	testCtx := setupTestContext(ctx, t)
-	defer testCtx.Close()
+	t.Cleanup(func() { testCtx.Close() })
 
 	// Start multiplexer.
 	go testCtx.mux.Serve()

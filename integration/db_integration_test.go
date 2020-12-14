@@ -46,14 +46,14 @@ func TestDatabaseAccessRootCluster(t *testing.T) {
 
 	// Connect to the database service in root cluster.
 	client, err := postgres.MakeTestClient(context.Background(), postgres.TestClientConfig{
-		AuthClient: pack.rootCluster.GetSiteAPI(pack.rootCluster.Secrets.SiteName),
-		AuthServer: pack.rootCluster.Process.GetAuthServer(),
-		Address:    fmt.Sprintf("%v:%v", Loopback, pack.rootCluster.GetPortWeb()),
-		Cluster:    pack.rootCluster.Secrets.SiteName,
-		Username:   pack.rootUser.GetName(),
+		AuthClient: pack.root.cluster.GetSiteAPI(pack.root.cluster.Secrets.SiteName),
+		AuthServer: pack.root.cluster.Process.GetAuthServer(),
+		Address:    fmt.Sprintf("%v:%v", Loopback, pack.root.cluster.GetPortWeb()),
+		Cluster:    pack.root.cluster.Secrets.SiteName,
+		Username:   pack.root.user.GetName(),
 		RouteToDatabase: tlsca.RouteToDatabase{
-			ServiceName: pack.rootDBService.Name,
-			Protocol:    pack.rootDBService.Protocol,
+			ServiceName: pack.root.dbService.Name,
+			Protocol:    pack.root.dbService.Protocol,
 			Username:    "postgres",
 			Database:    "test",
 		},
@@ -64,8 +64,8 @@ func TestDatabaseAccessRootCluster(t *testing.T) {
 	result, err := client.Exec(context.Background(), "select 1").ReadAll()
 	require.NoError(t, err)
 	require.Equal(t, []*pgconn.Result{postgres.TestQueryResponse}, result)
-	require.Equal(t, uint32(1), pack.rootPostgres.QueryCount())
-	require.Equal(t, uint32(0), pack.leafPostgres.QueryCount())
+	require.Equal(t, uint32(1), pack.root.postgres.QueryCount())
+	require.Equal(t, uint32(0), pack.leaf.postgres.QueryCount())
 
 	// Disconnect.
 	err = client.Close(context.Background())
@@ -79,14 +79,14 @@ func TestDatabaseAccessLeafCluster(t *testing.T) {
 
 	// Connect to the database service in leaf cluster via root cluster.
 	client, err := postgres.MakeTestClient(context.Background(), postgres.TestClientConfig{
-		AuthClient: pack.rootCluster.GetSiteAPI(pack.rootCluster.Secrets.SiteName),
-		AuthServer: pack.rootCluster.Process.GetAuthServer(),
-		Address:    fmt.Sprintf("%v:%v", Loopback, pack.rootCluster.GetPortWeb()), // Connecting via root cluster.
-		Cluster:    pack.leafCluster.Secrets.SiteName,
-		Username:   pack.rootUser.GetName(),
+		AuthClient: pack.root.cluster.GetSiteAPI(pack.root.cluster.Secrets.SiteName),
+		AuthServer: pack.root.cluster.Process.GetAuthServer(),
+		Address:    fmt.Sprintf("%v:%v", Loopback, pack.root.cluster.GetPortWeb()), // Connecting via root cluster.
+		Cluster:    pack.leaf.cluster.Secrets.SiteName,
+		Username:   pack.root.user.GetName(),
 		RouteToDatabase: tlsca.RouteToDatabase{
-			ServiceName: pack.leafDBService.Name,
-			Protocol:    pack.leafDBService.Protocol,
+			ServiceName: pack.leaf.dbService.Name,
+			Protocol:    pack.leaf.dbService.Protocol,
 			Username:    "postgres",
 			Database:    "test",
 		},
@@ -97,8 +97,8 @@ func TestDatabaseAccessLeafCluster(t *testing.T) {
 	result, err := client.Exec(context.Background(), "select 1").ReadAll()
 	require.NoError(t, err)
 	require.Equal(t, []*pgconn.Result{postgres.TestQueryResponse}, result)
-	require.Equal(t, uint32(1), pack.leafPostgres.QueryCount())
-	require.Equal(t, uint32(0), pack.rootPostgres.QueryCount())
+	require.Equal(t, uint32(1), pack.leaf.postgres.QueryCount())
+	require.Equal(t, uint32(0), pack.root.postgres.QueryCount())
 
 	// Disconnect.
 	err = client.Close(context.Background())
@@ -106,29 +106,19 @@ func TestDatabaseAccessLeafCluster(t *testing.T) {
 }
 
 type databasePack struct {
-	rootCluster *TeleInstance
-	leafCluster *TeleInstance
+	root databaseClusterPack
+	leaf databaseClusterPack
+}
 
-	rootUser services.User
-	leafUser services.User
-
-	rootRole services.Role
-	leafRole services.Role
-
-	rootDBService service.Database
-	leafDBService service.Database
-
-	rootDBProcess *service.TeleportProcess
-	leafDBProcess *service.TeleportProcess
-
-	rootDBAuthClient *auth.Client
-	leafDBAuthClient *auth.Client
-
-	rootPostgresAddr string
-	leafPostgresAddr string
-
-	rootPostgres *postgres.TestServer
-	leafPostgres *postgres.TestServer
+type databaseClusterPack struct {
+	cluster      *TeleInstance
+	user         services.User
+	role         services.Role
+	dbService    service.Database
+	dbProcess    *service.TeleportProcess
+	dbAuthClient *auth.Client
+	postgresAddr string
+	postgres     *postgres.TestServer
 }
 
 func setupDatabaseTest(t *testing.T) *databasePack {
@@ -150,12 +140,16 @@ func setupDatabaseTest(t *testing.T) *databasePack {
 	require.NoError(t, err)
 
 	p := &databasePack{
-		rootPostgresAddr: fmt.Sprintf("localhost:%v", ports.PopInt()),
-		leafPostgresAddr: fmt.Sprintf("localhost:%v", ports.PopInt()),
+		root: databaseClusterPack{
+			postgresAddr: fmt.Sprintf("localhost:%v", ports.PopInt()),
+		},
+		leaf: databaseClusterPack{
+			postgresAddr: fmt.Sprintf("localhost:%v", ports.PopInt()),
+		},
 	}
 
 	// Create root cluster.
-	p.rootCluster = NewInstance(InstanceConfig{
+	p.root.cluster = NewInstance(InstanceConfig{
 		ClusterName: "root.example.com",
 		HostID:      uuid.New(),
 		NodeName:    Host,
@@ -166,7 +160,7 @@ func setupDatabaseTest(t *testing.T) *databasePack {
 	})
 
 	// Create leaf cluster.
-	p.leafCluster = NewInstance(InstanceConfig{
+	p.leaf.cluster = NewInstance(InstanceConfig{
 		ClusterName: "leaf.example.com",
 		HostID:      uuid.New(),
 		NodeName:    Host,
@@ -193,44 +187,44 @@ func setupDatabaseTest(t *testing.T) *databasePack {
 	lcConf.Proxy.DisableWebInterface = true
 
 	// Establish trust b/w root and leaf.
-	err = p.rootCluster.CreateEx(p.leafCluster.Secrets.AsSlice(), rcConf)
+	err = p.root.cluster.CreateEx(p.leaf.cluster.Secrets.AsSlice(), rcConf)
 	require.NoError(t, err)
-	err = p.leafCluster.CreateEx(p.rootCluster.Secrets.AsSlice(), lcConf)
+	err = p.leaf.cluster.CreateEx(p.root.cluster.Secrets.AsSlice(), lcConf)
 	require.NoError(t, err)
 
 	// Start both clusters.
-	err = p.leafCluster.Start()
+	err = p.leaf.cluster.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		p.leafCluster.StopAll()
+		p.leaf.cluster.StopAll()
 	})
-	err = p.rootCluster.Start()
+	err = p.root.cluster.Start()
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		p.rootCluster.StopAll()
+		p.root.cluster.StopAll()
 	})
 
 	// Setup users and roles on both clusters.
 	p.setupUsersAndRoles(t)
 
 	// Update root's certificate authority on leaf to configure role mapping.
-	ca, err := p.leafCluster.Process.GetAuthServer().GetCertAuthority(services.CertAuthID{
+	ca, err := p.leaf.cluster.Process.GetAuthServer().GetCertAuthority(services.CertAuthID{
 		Type:       services.UserCA,
-		DomainName: p.rootCluster.Secrets.SiteName,
+		DomainName: p.root.cluster.Secrets.SiteName,
 	}, false)
 	require.NoError(t, err)
 	ca.SetRoles(nil) // Reset roles, otherwise they will take precedence.
 	ca.SetRoleMap(services.RoleMap{
-		{Remote: p.rootRole.GetName(), Local: []string{p.leafRole.GetName()}},
+		{Remote: p.root.role.GetName(), Local: []string{p.leaf.role.GetName()}},
 	})
-	err = p.leafCluster.Process.GetAuthServer().UpsertCertAuthority(ca)
+	err = p.leaf.cluster.Process.GetAuthServer().UpsertCertAuthority(ca)
 	require.NoError(t, err)
 
 	// Create and start database service in the root cluster.
-	p.rootDBService = service.Database{
+	p.root.dbService = service.Database{
 		Name:     "root-postgres",
 		Protocol: defaults.ProtocolPostgres,
-		URI:      p.rootPostgresAddr,
+		URI:      p.root.postgresAddr,
 	}
 	rdConf := service.MakeDefaultConfig()
 	rdConf.DataDir = t.TempDir()
@@ -238,22 +232,22 @@ func setupDatabaseTest(t *testing.T) *databasePack {
 	rdConf.AuthServers = []utils.NetAddr{
 		{
 			AddrNetwork: "tcp",
-			Addr:        net.JoinHostPort(Loopback, p.rootCluster.GetPortWeb()),
+			Addr:        net.JoinHostPort(Loopback, p.root.cluster.GetPortWeb()),
 		},
 	}
 	rdConf.Databases.Enabled = true
-	rdConf.Databases.Databases = []service.Database{p.rootDBService}
-	p.rootDBProcess, p.rootDBAuthClient, err = p.rootCluster.StartDatabase(rdConf)
+	rdConf.Databases.Databases = []service.Database{p.root.dbService}
+	p.root.dbProcess, p.root.dbAuthClient, err = p.root.cluster.StartDatabase(rdConf)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		p.rootDBProcess.Close()
+		p.root.dbProcess.Close()
 	})
 
 	// Create and start database service in the leaf cluster.
-	p.leafDBService = service.Database{
+	p.leaf.dbService = service.Database{
 		Name:     "leaf-postgres",
 		Protocol: defaults.ProtocolPostgres,
-		URI:      p.leafPostgresAddr,
+		URI:      p.leaf.postgresAddr,
 	}
 	ldConf := service.MakeDefaultConfig()
 	ldConf.DataDir = t.TempDir()
@@ -261,31 +255,31 @@ func setupDatabaseTest(t *testing.T) *databasePack {
 	ldConf.AuthServers = []utils.NetAddr{
 		{
 			AddrNetwork: "tcp",
-			Addr:        net.JoinHostPort(Loopback, p.leafCluster.GetPortWeb()),
+			Addr:        net.JoinHostPort(Loopback, p.leaf.cluster.GetPortWeb()),
 		},
 	}
 	ldConf.Databases.Enabled = true
-	ldConf.Databases.Databases = []service.Database{p.leafDBService}
-	p.leafDBProcess, p.leafDBAuthClient, err = p.leafCluster.StartDatabase(ldConf)
+	ldConf.Databases.Databases = []service.Database{p.leaf.dbService}
+	p.leaf.dbProcess, p.leaf.dbAuthClient, err = p.leaf.cluster.StartDatabase(ldConf)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		p.leafDBProcess.Close()
+		p.leaf.dbProcess.Close()
 	})
 
 	// Create and start test Postgres in the root cluster.
-	p.rootPostgres, err = postgres.MakeTestServer(p.rootDBAuthClient, p.rootDBService.Name, p.rootPostgresAddr)
+	p.root.postgres, err = postgres.MakeTestServer(p.root.dbAuthClient, p.root.dbService.Name, p.root.postgresAddr)
 	require.NoError(t, err)
-	go p.rootPostgres.Serve()
+	go p.root.postgres.Serve()
 	t.Cleanup(func() {
-		p.rootPostgres.Close()
+		p.root.postgres.Close()
 	})
 
 	// Create and start test Postgres in the leaf cluster.
-	p.leafPostgres, err = postgres.MakeTestServer(p.leafDBAuthClient, p.leafDBService.Name, p.leafPostgresAddr)
+	p.leaf.postgres, err = postgres.MakeTestServer(p.leaf.dbAuthClient, p.leaf.dbService.Name, p.leaf.postgresAddr)
 	require.NoError(t, err)
-	go p.leafPostgres.Serve()
+	go p.leaf.postgres.Serve()
 	t.Cleanup(func() {
-		p.leafPostgres.Close()
+		p.leaf.postgres.Close()
 	})
 
 	return p
@@ -294,19 +288,19 @@ func setupDatabaseTest(t *testing.T) *databasePack {
 func (p *databasePack) setupUsersAndRoles(t *testing.T) {
 	var err error
 
-	p.rootUser, p.rootRole, err = auth.CreateUserAndRole(p.rootCluster.Process.GetAuthServer(), "root-user", nil)
+	p.root.user, p.root.role, err = auth.CreateUserAndRole(p.root.cluster.Process.GetAuthServer(), "root-user", nil)
 	require.NoError(t, err)
 
-	p.rootRole.SetDatabaseUsers(services.Allow, []string{services.Wildcard})
-	p.rootRole.SetDatabaseNames(services.Allow, []string{services.Wildcard})
-	err = p.rootCluster.Process.GetAuthServer().UpsertRole(context.Background(), p.rootRole)
+	p.root.role.SetDatabaseUsers(services.Allow, []string{services.Wildcard})
+	p.root.role.SetDatabaseNames(services.Allow, []string{services.Wildcard})
+	err = p.root.cluster.Process.GetAuthServer().UpsertRole(context.Background(), p.root.role)
 	require.NoError(t, err)
 
-	p.leafUser, p.leafRole, err = auth.CreateUserAndRole(p.rootCluster.Process.GetAuthServer(), "leaf-user", nil)
+	p.leaf.user, p.leaf.role, err = auth.CreateUserAndRole(p.root.cluster.Process.GetAuthServer(), "leaf-user", nil)
 	require.NoError(t, err)
 
-	p.leafRole.SetDatabaseUsers(services.Allow, []string{services.Wildcard})
-	p.leafRole.SetDatabaseNames(services.Allow, []string{services.Wildcard})
-	err = p.leafCluster.Process.GetAuthServer().UpsertRole(context.Background(), p.leafRole)
+	p.leaf.role.SetDatabaseUsers(services.Allow, []string{services.Wildcard})
+	p.leaf.role.SetDatabaseNames(services.Allow, []string{services.Wildcard})
+	err = p.leaf.cluster.Process.GetAuthServer().UpsertRole(context.Background(), p.leaf.role)
 	require.NoError(t, err)
 }

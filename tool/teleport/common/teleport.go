@@ -141,7 +141,7 @@ func Run(options Options) (executedCommand string, conf *service.Config) {
 		fmt.Sprintf("Proxied database protocol. Supported are: %v.", defaults.DatabaseProtocols)).
 		StringVar(&ccf.DatabaseProtocol)
 	start.Flag("db-uri",
-		"Address proxied database is reachable at.").
+		"Address the proxied database is reachable at.").
 		StringVar(&ccf.DatabaseURI)
 	start.Flag("db-ca-cert",
 		"Database CA certificate path.").
